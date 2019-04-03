@@ -89,12 +89,12 @@ dc.heatMap = function (parent, chartGroup) {
     var _boxOnClick = function (d) {
         var filter = d.key;
         dc.events.trigger(function () {
-            _chart.filter(dc.filters.TwoDimensionalFilter(filter));
+            _chart.filter(filter);
             _chart.redrawGroup();
         });
     };
 
-    function filterAxis (axis, value) {
+    function filterAxis(axis, value) {
         var cellsOnAxis = _chart.selectAll('.box-group').filter(function (d) {
             return d.key[axis] === value;
         });
@@ -106,23 +106,17 @@ dc.heatMap = function (parent, chartGroup) {
             var filters = selection.data().map(function (kv) {
                 return dc.filters.TwoDimensionalFilter(kv.key);
             });
-            _chart.filter([filters]);
+            _chart._filter([filters]);
             _chart.redrawGroup();
         });
     }
 
-    var nonstandardFilter = dc.logger.deprecate(function (filter) {
-        return _chart._filter(dc.filters.TwoDimensionalFilter(filter));
-    }, 'heatmap.filter taking a coordinate is deprecated - please pass dc.filters.TwoDimensionalFilter instead');
     dc.override(_chart, 'filter', function (filter) {
         if (!arguments.length) {
             return _chart._filter();
         }
-        if (filter !== null && filter.filterType !== 'TwoDimensionalFilter' &&
-           !(Array.isArray(filter) && Array.isArray(filter[0]) && filter[0][0].filterType === 'TwoDimensionalFilter')) {
-            return nonstandardFilter(filter);
-        }
-        return _chart._filter(filter);
+
+        return _chart._filter(dc.filters.TwoDimensionalFilter(filter));
     });
 
     /**
@@ -232,12 +226,40 @@ dc.heatMap = function (parent, chartGroup) {
             .attr('y', function (d, i) { return rows(_chart.valueAccessor()(d, i)); })
             .on('click', _chart.boxOnClick());
 
-        boxes = gEnter.merge(boxes);
-
         if (_chart.renderTitle()) {
             gEnter.append('title');
             boxes.select('title').text(_chart.title());
         }
+
+        if (_renderText) {
+            var text = gEnter.append('text');
+
+            text
+                .attr('font-size', function () {
+                    xy = boxHeight < boxWidth ? boxHeight : boxWidth;
+                    return (xy / 3);
+                });
+
+            var tspan = text.append('tspan');
+
+            tspan
+                .attr('text-anchor', 'middle')
+                .attr('y', function (d, i) {
+                    return rows(_chart.valueAccessor()(d, i)) + boxHeight / 2 + boxHeight / 6;
+                })
+                .attr('x', function (d, i) {
+                    return cols(_chart.keyAccessor()(d, i)) + boxWidth / 2;
+                })
+                .on('click', function (d) {
+                    var filter = d.key;
+                    dc.events.trigger(function () {
+                        _chart.filter(filter);
+                        _chart.redrawGroup();
+                    });
+                });
+        }
+
+        boxes = gEnter.merge(boxes);
 
         dc.transition(boxes.select('rect'), _chart.transitionDuration(), _chart.transitionDelay())
             .attr('x', function (d, i) { return cols(_chart.keyAccessor()(d, i)); })
@@ -247,6 +269,26 @@ dc.heatMap = function (parent, chartGroup) {
             .attr('fill', _chart.getColor)
             .attr('width', boxWidth)
             .attr('height', boxHeight);
+
+        if (_renderText) {
+
+            dc.transition(boxes.select('text'), _chart.transitionDuration(), _chart.transitionDelay())
+                .attr('font-size', function () {
+                    xy = boxHeight < boxWidth ? boxHeight : boxWidth;
+                    return (xy / 3);
+                });
+
+            dc.transition(boxes.select('tspan'), _chart.transitionDuration(), _chart.transitionDelay())
+                .attr('y', function (d, i) {
+                    return rows(_chart.valueAccessor()(d, i)) + boxHeight / 2 + boxHeight / 6;
+                })
+                .style('font-size', _xScaleAxisLabels ? boxWidth / _xAxisLabelSize : _xAxisLabelSize)
+                .attr('x', function (d, i) {
+                    return cols(_chart.keyAccessor()(d, i)) + boxWidth / 2;
+                })
+                .attr('fill', function (d, i) { return _chart.textColorCalculator()(d, i); })
+                .text(function (d, i) { return _chart.textAccessor()(d, i); });
+        }
 
         var gCols = _chartBody.select('g.cols');
         if (gCols.empty()) {
@@ -258,21 +300,23 @@ dc.heatMap = function (parent, chartGroup) {
 
         gColsText = gColsText
             .enter()
-                .append('text')
-                .attr('x', function (d) {
-                    return cols(d) + boxWidth / 2;
-                })
-                .style('text-anchor', 'middle')
-                .attr('y', _chart.effectiveHeight())
-                .attr('dy', 12)
-                .on('click', _chart.xAxisOnClick())
-                .text(_chart.colsLabel())
+            .append('text')
+            .attr('x', function (d) {
+                return cols(d) + boxWidth / 2;
+            })
+            .style('text-anchor', 'middle')
+            .style('font-size', _xScaleAxisLabels ? _chart.xScaleTextLabelSize(boxWidth / _xAxisLabelSize) : _xAxisLabelSize)
+            .attr('y', _chart.effectiveHeight())
+            .attr('dy', 12)
+            .on('click', _chart.xAxisOnClick())
+            .text(_chart.colsLabel())
             .merge(gColsText);
 
         dc.transition(gColsText, _chart.transitionDuration(), _chart.transitionDelay())
-               .text(_chart.colsLabel())
-               .attr('x', function (d) { return cols(d) + boxWidth / 2; })
-               .attr('y', _chart.effectiveHeight());
+            .text(_chart.colsLabel())
+            .style('font-size', _xScaleAxisLabels ? _chart.xScaleTextLabelSize(boxWidth / _xAxisLabelSize) : _xAxisLabelSize)
+            .attr('x', function (d) { return cols(d) + boxWidth / 2; })
+            .attr('y', _chart.effectiveHeight());
 
         var gRows = _chartBody.select('g.rows');
         if (gRows.empty()) {
@@ -286,18 +330,20 @@ dc.heatMap = function (parent, chartGroup) {
         gRowsText = gRowsText
             .enter()
             .append('text')
-                .style('text-anchor', 'end')
-                .attr('x', 0)
-                .attr('dx', -2)
-                .attr('y', function (d) { return rows(d) + boxHeight / 2; })
-                .attr('dy', 6)
-                .on('click', _chart.yAxisOnClick())
-                .text(_chart.rowsLabel())
+            .style('text-anchor', 'end')
+            .style('font-size', _yScaleAxisLabels ? function () { return _chart.yScaleTextLabelSize()(boxHeight / _yAxisLabelSize) } : _yAxisLabelSize)
+            .attr('x', 0)
+            .attr('dx', -2)
+            .attr('y', function (d) { return rows(d) + boxHeight / 2; })
+            .attr('dy', 6)
+            .on('click', _chart.yAxisOnClick())
+            .text(_chart.rowsLabel())
             .merge(gRowsText);
 
         dc.transition(gRowsText, _chart.transitionDuration(), _chart.transitionDelay())
-              .text(_chart.rowsLabel())
-              .attr('y', function (d) { return rows(d) + boxHeight / 2; });
+            .text(_chart.rowsLabel())
+            .style('font-size', _yScaleAxisLabels ? function () { return _chart.yScaleTextLabelSize()(boxHeight / _yAxisLabelSize) } : _yAxisLabelSize)
+            .attr('y', function (d) { return rows(d) + boxHeight / 2; });
 
         if (_chart.hasFilter()) {
             _chart.selectAll('g.box-group').each(function (d) {
@@ -312,8 +358,180 @@ dc.heatMap = function (parent, chartGroup) {
                 _chart.resetHighlight(this);
             });
         }
+
         return _chart;
     };
+
+    /**
+    * Box text:
+    */
+
+    var _textAccessor = function () { return "" };
+    _chart.textAccessor = function (textAccessor) {
+        if (!arguments.length) {
+            return _textAccessor;
+        }
+        _textAccessor = textAccessor;
+        return _chart;
+    }
+
+    var _renderText = false;
+    _chart.renderText = function (renderText) {
+        if (!arguments.length) {
+            return _renderText;
+        }
+        _renderText = renderText;
+        return _chart;
+    };
+
+    var _boxTextWhiteText = 120;
+    _chart.boxTextWhiteText = function (boxTextWhiteText) {
+        if (!arguments.length) {
+            return _boxTextWhiteText;
+        }
+        _boxTextWhiteText = boxTextWhiteText;
+        return _chart;
+    };
+
+    var _textColorCalculator = function (d, i) {
+        var rectColor = _chart.getColor(d, i);
+        var rgb = rectColor.replace(/[^\d,]/g, '').split(',');
+        return (rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114) > _boxTextWhiteText ? '#000000' : '#ffffff';
+    }
+
+    _chart.textColorCalculator = function (textColorCalculator) {
+        if (!arguments.length) {
+            return _textColorCalculator;
+        }
+        _textColorCalculator = textColorCalculator;
+        return _chart;
+    }
+
+    /**
+     * Y-Axis label:  
+     */
+
+    var _yAxisLabelSize = '';
+    _chart.yAxisLabelSize = function (yAxisLabelSize) {
+        if (!arguments.length) {
+            return _yAxisLabelSize;
+        }
+        _yAxisLabelSize = yAxisLabelSize;
+        return _chart;
+    };
+
+    var _yScaleAxisLabels = false;
+    _chart.yScaleAxisLabels = function (yScaleAxisLabels) {
+        if (!arguments.length) {
+            return _yScaleAxisLabels;
+        }
+        _yScaleAxisLabels = yScaleAxisLabels;
+        return _chart;
+    };
+
+    var _yScaleTextLabelSize = function (size) { return size; };
+    _chart.yScaleTextLabelSize = function (yScaleTextLabelSize) {
+        if (!arguments.length) {
+            return _yScaleTextLabelSize;
+        }
+        _yScaleTextLabelSize = yScaleTextLabelSize;
+        return _chart;
+    }
+
+    /**
+     * X-Axis label:  
+     */
+
+    var _xAxisLabelSize = '';
+    _chart.xAxisLabelSize = function (xAxisLabelSize) {
+        if (!arguments.length) {
+            return _xAxisLabelSize;
+        }
+        _xAxisLabelSize = xAxisLabelSize;
+        return _chart;
+    };
+
+    var _xScaleAxisLabels = false;
+    _chart.xScaleAxisLabels = function (xScaleAxisLabels) {
+        if (!arguments.length) {
+            return _xScaleAxisLabels;
+        }
+        _xScaleAxisLabels = xScaleAxisLabels;
+        return _chart;
+    };
+
+    var _xScaleTextLabelSize = function (size) { return size; };
+    _chart.xScaleTextLabelSize = function (xScaleTextLabelSize) {
+        if (!arguments.length) {
+            return _xScaleTextLabelSize;
+        }
+        _xScaleTextLabelSize = xScaleTextLabelSize;
+        return _chart;
+    }
+
+    /**
+     * Resizes chart to fit its div.
+     * Must overide preRender & redraw & add call render in window.onresize:
+     * Example:
+     * dc.override(heatMap, 'preRender', function () { heatMap.doResizeRender(5, undefined, undefined, 6); });
+     * dc.override(heatMap, 'redraw', function () { heatMap.doResizeRedraw(5, undefined, undefined, 6); });
+     * window.onresize = function () { heatMap.render(5, undefined, undefined, 6); };
+     * 
+     * @param  {Number} [leftMargin]
+     * @param  {Number} [topMargin]
+     * @param  {Number} [rightMargin]
+     * @param  {Number} [bottomMargin]
+     */
+    _chart.doResizeRedraw = function (leftMargin, topMargin, rightMargin, bottomMargin) {
+        _chart.doResize()(leftMargin, topMargin, rightMargin, bottomMargin);
+
+        _chart.svg()
+            .attr('height', _chart.height());
+
+        _chart._doRedraw();
+    }
+
+    _chart.doResizeRender = function (leftMargin, topMargin, rightMargin, bottomMargin) {
+        _chart.doResize()(leftMargin, topMargin, rightMargin, bottomMargin);
+        _chart._doRender();
+    }
+
+    var _doResize = function (leftMargin, topMargin, rightMargin, bottomMargin) {
+        var rows = new Set(), cols = new Set();
+        _chart.group().all().forEach(function (kv) {
+            cols.add(_chart.keyAccessor()(kv));
+            rows.add(_chart.valueAccessor()(kv));
+        });
+
+        var divWidth = document.getElementById(parent.substring(1, parent.length)).offsetWidth;
+
+        if (leftMargin != undefined || bottomMargin != undefined || rightMargin != undefined || topMargin != undefined) {
+            _chart
+                .margins({
+                    left: leftMargin != undefined ? divWidth / leftMargin : _chart.margins().left,
+                    top: topMargin != undefined ? divWidth / topMargin : _chart.margins().top,
+                    right: rightMargin != undefined ? divWidth / rightMargin : _chart.margins().right,
+                    bottom: bottomMargin != undefined ? divWidth / bottomMargin : _chart.margins().bottom
+                })
+        }
+
+        var sizeSet = (divWidth - _chart.margins().left - _chart.margins().right) / cols.size;
+
+        sizeSet /= 1.5;
+        sizeSet = Math.floor(sizeSet);
+
+        _chart
+            .width(divWidth)
+            .height(rows.size * sizeSet + _chart.margins().top + _chart.margins().bottom);
+    }
+
+    _chart.doResize = function (doResize) {
+        if (!arguments.length) {
+            return _doResize;
+        }
+        _doResize = doResize;
+        return _chart;
+    }
 
     /**
      * Gets or sets the handler that fires when an individual cell is clicked in the heatmap.
