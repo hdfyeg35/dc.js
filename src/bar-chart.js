@@ -46,11 +46,70 @@ dc.barChart = function (parent, chartGroup) {
     dc.override(_chart, 'render', function () {
         if (_chart.round() && _centerBar && !_alwaysUseRounding) {
             dc.logger.warn('By default, brush rounding is disabled if bars are centered. ' +
-                         'See dc.js bar chart API documentation for details.');
+                'See dc.js bar chart API documentation for details.');
         }
 
         return _chart._render();
     });
+
+    /**
+     * Resizes chart to fit its div.
+     * Must overide preRender & redraw & add call render in window.onresize:
+     * Example:
+     * barChart.on('preRender', barChart.doResizeRender(10, 5, undefined, undefined, 6));
+     * dc.override(barChart, 'redraw', function () { barChart.doResizeRedraw(10, 5, undefined, undefined, 6); });
+     * window.onresize = function () { barChart.render(10, 5, undefined, undefined, 6); };
+     * 
+     * @param  {Number} [height]
+     * @param  {Number} [leftMargin]
+     * @param  {Number} [topMargin]
+     * @param  {Number} [rightMargin]
+     * @param  {Number} [bottomMargin]
+     */
+    _chart.doResizeRedraw = function (height, leftMargin, topMargin, rightMargin, bottomMargin) {
+        _chart.doResize()(height, leftMargin, topMargin, rightMargin, bottomMargin);
+
+        // Dont think this is needed:
+        // _chart.svg()
+        //     .attr('height', _chart.height());
+
+        _chart._doRedraw();
+    }
+
+    _chart.doResizeRender = function (height, leftMargin, topMargin, rightMargin, bottomMargin) {
+        _chart.doResize()(height, leftMargin, topMargin, rightMargin, bottomMargin);
+        _chart._doRender();
+    }
+
+    var _doResize = function (height, leftMargin, topMargin, rightMargin, bottomMargin) {
+        var divWidth = document.getElementById(parent.substring(1, parent.length)).offsetWidth;
+
+        if (leftMargin != undefined || bottomMargin != undefined || rightMargin != undefined || topMargin != undefined) {
+            _chart
+                .margins({
+                    left: leftMargin != undefined ? divWidth / leftMargin : _chart.margins().left,
+                    top: topMargin != undefined ? divWidth / topMargin : _chart.margins().top,
+                    right: rightMargin != undefined ? divWidth / rightMargin : _chart.margins().right,
+                    bottom: bottomMargin != undefined ? divWidth / bottomMargin : _chart.margins().bottom
+                })
+        }
+
+        _chart
+            .width(divWidth)
+
+        if (height != undefined) {
+            _chart
+                .height(divWidth / height + _chart.margins().top + _chart.margins().bottom);
+        }
+    }
+
+    _chart.doResize = function (doResize) {
+        if (!arguments.length) {
+            return _doResize;
+        }
+        _doResize = doResize;
+        return _chart;
+    }
 
     _chart.label(function (d) {
         return dc.utils.printSingleValue(d.y0 + d.y);
@@ -64,10 +123,10 @@ dc.barChart = function (parent, chartGroup) {
 
         layers = layers
             .enter()
-                .append('g')
-                .attr('class', function (d, i) {
-                    return 'stack ' + '_' + i;
-                })
+            .append('g')
+            .attr('class', function (d, i) {
+                return 'stack ' + '_' + i;
+            })
             .merge(layers);
 
         var last = layers.size() - 1;
@@ -82,11 +141,11 @@ dc.barChart = function (parent, chartGroup) {
         });
     };
 
-    function barHeight (d) {
+    function barHeight(d) {
         return dc.utils.safeNumber(Math.abs(_chart.y()(d.y + d.y0) - _chart.y()(d.y0)));
     }
 
-    function labelXPos (d) {
+    function labelXPos(d) {
         var x = _chart.x()(d.x);
         if (!_centerBar) {
             x += _barWidth / 2;
@@ -97,7 +156,7 @@ dc.barChart = function (parent, chartGroup) {
         return dc.utils.safeNumber(x);
     }
 
-    function labelYPos (d) {
+    function labelYPos(d) {
         var y = _chart.y()(d.y + d.y0);
 
         if (d.y < 0) {
@@ -107,17 +166,17 @@ dc.barChart = function (parent, chartGroup) {
         return dc.utils.safeNumber(y - LABEL_PADDING);
     }
 
-    function renderLabels (layer, layerIndex, d) {
+    function renderLabels(layer, layerIndex, d) {
         var labels = layer.selectAll('text.barLabel')
             .data(d.values, dc.pluck('x'));
 
         var labelsEnterUpdate = labels
             .enter()
-                .append('text')
-                .attr('class', 'barLabel')
-                .attr('text-anchor', 'middle')
-                .attr('x', labelXPos)
-                .attr('y', labelYPos)
+            .append('text')
+            .attr('class', 'barLabel')
+            .attr('text-anchor', 'middle')
+            .attr('x', labelXPos)
+            .attr('y', labelYPos)
             .merge(labels);
 
         if (_chart.isOrdinal()) {
@@ -126,6 +185,7 @@ dc.barChart = function (parent, chartGroup) {
         }
 
         dc.transition(labelsEnterUpdate, _chart.transitionDuration(), _chart.transitionDelay())
+            .attr('font-size', _scalebarLabelSize ? _barWidth / _barLabelSize : _barLabelSize)
             .attr('x', labelXPos)
             .attr('y', labelYPos)
             .text(function (d) {
@@ -137,7 +197,29 @@ dc.barChart = function (parent, chartGroup) {
             .remove();
     }
 
-    function barXPos (d) {
+    /**
+     * Bar label:
+     */
+
+    var _barLabelSize = '';
+    _chart.barLabelSize = function (barLabelSize) {
+        if (!arguments.length) {
+            return _barLabelSize;
+        }
+        _barLabelSize = barLabelSize;
+        return _chart;
+    };
+
+    var _scalebarLabelSize = false;
+    _chart.scalebarLabelSize = function (scalebarLabelSize) {
+        if (!arguments.length) {
+            return _scalebarLabelSize;
+        }
+        _scalebarLabelSize = scalebarLabelSize;
+        return _chart;
+    };
+
+    function barXPos(d) {
         var x = _chart.x()(d.x);
         if (_centerBar) {
             x -= _barWidth / 2;
@@ -148,7 +230,7 @@ dc.barChart = function (parent, chartGroup) {
         return dc.utils.safeNumber(x);
     }
 
-    function renderBars (layer, layerIndex, d) {
+    function renderBars(layer, layerIndex, d) {
         var bars = layer.selectAll('rect.bar')
             .data(d.values, dc.pluck('x'));
 
@@ -194,7 +276,7 @@ dc.barChart = function (parent, chartGroup) {
             .remove();
     }
 
-    function calculateBarWidth () {
+    function calculateBarWidth() {
         if (_barWidth === undefined) {
             var numberOfBars = _chart.xUnitCount();
 
@@ -346,7 +428,7 @@ dc.barChart = function (parent, chartGroup) {
         return _chart;
     };
 
-    function colorFilter (color, inv) {
+    function colorFilter(color, inv) {
         return function () {
             var item = d3.select(this);
             var match = item.attr('fill') === color;
